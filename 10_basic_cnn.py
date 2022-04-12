@@ -69,12 +69,12 @@ class Net2(torch.nn.Module):
         x = F.relu(self.pooling(self.conv2(x)))     # -> (n, 20, 14, 14) -> (n, 20, 7, 7)
         x = F.relu(self.pooling(self.conv3(x)))     # -> (n, 30, 7, 7) -> (n, 30, 3, 3)
         x = x.view(batch_size, -1)
-        x = self.fc1(x)
+        x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
 
 
-model = Net2()
+model = Net()
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")     # 处理设备
 model.to(device)            # 将模型model移到device中
 criterion = torch.nn.CrossEntropyLoss()

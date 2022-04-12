@@ -1,6 +1,7 @@
 from turtle import forward
 from numpy import size
 import torch
+from torch import nn
 from torchvision import transforms
 from torchvision import datasets
 from torch.utils.data import DataLoader
@@ -34,47 +35,54 @@ test_loader = DataLoader(test_dataset,
 print("train_dataset length: ", len(train_dataset))
 
 
-# 采用CNN构建网络，替换全连接层
-class Net(torch.nn.Module):
+class InceptionA(nn.Module):
+    def __init__(self, in_channels):
+        super(InceptionA, self).__init__()
+        self.branch1x1 = nn.Conv2d(in_channels, 16, kernel_size=1)
+        self.branch5x5_1 = nn.Conv2d(in_channels,16, kernel_size=1)
+        self.branch5x5_2 = nn.Conv2d(16, 24, kernel_size=5, padding=2)
+        self.branch3x3_1 = nn.Conv2d(in_channels, 16, kernel_size=1)
+        self.branch3x3_2 = nn.Conv2d(16, 24, kernel_size=3, padding=1)
+        self.branch3x3_3 = nn.Conv2d(24, 24, kernel_size=3, padding=1)
+        self.branch_pool = nn.Conv2d(in_channels, 24, kernel_size=1)
+
+    def forward(self, x):
+        branch1x1 = self.branch1x1(x)
+        branch5x5 = self.branch5x5_1(x)
+        branch5x5 = self.branch5x5_2(branch5x5)
+        branch3x3 = self.branch3x3_1(x)
+        branch3x3 = self.branch3x3_2(branch3x3)
+        branch3x3 = self.branch3x3_3(branch3x3)
+        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
+        branch_pool = self.branch_pool(branch_pool)
+        outputs = [branch1x1, branch5x5, branch3x3, branch_pool]
+        return torch.cat(outputs, dim=1)
+
+
+class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = torch.nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = torch.nn.Conv2d(10, 20, kernel_size=5)
-        self.pooling = torch.nn.MaxPool2d(2)
-        self.fc = torch.nn.Linear(320, 10)
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
+        self.conv2 = nn.Conv2d(88, 20, kernel_size=5)
+        self.incep1 = InceptionA(in_channels=10)
+        self.incep2 = InceptionA(in_channels=20)
+        self.mp = nn.MaxPool2d(2)
+        self.fc1 = nn.Linear(1408, 512)
+        self.fc2 = nn.Linear(512, 10)       # ssj add
 
     def forward(self, x):
-        # input x: (n, 1, 28, 28)
-        batch_size = x.size(0)
-        x = F.relu(self.pooling(self.conv1(x)))     # -> (n, 10, 24, 24) -> (n, 10, 12, 12)
-        x = F.relu(self.pooling(self.conv2(x)))     # -> (n, 20, 8, 8) -> (n, 20, 4, 4)
-        x = x.view(batch_size, -1) # flatten        # -> (n, 320)
-        x = self.fc(x)                              # -> (n, 10)
-        return x
-
-# Exercise 10-1
-class Net2(torch.nn.Module):
-    def __init__(self):
-        super(Net2, self).__init__()
-        self.conv1 = torch.nn.Conv2d(1, 10, kernel_size=3, padding=1)
-        self.conv2 = torch.nn.Conv2d(10, 20, kernel_size=3, padding=1)
-        self.conv3 = torch.nn.Conv2d(20, 30, kernel_size=3, padding=1)
-        self.pooling = torch.nn.MaxPool2d(kernel_size=2)
-        self.fc1 = torch.nn.Linear(270, 128)
-        self.fc2 = torch.nn.Linear(128, 10)
-
-    def forward(self, x):
-        batch_size = x.size(0)
-        x = F.relu(self.pooling(self.conv1(x)))     # -> (n, 10, 28, 28) -> (n, 10, 14, 14)
-        x = F.relu(self.pooling(self.conv2(x)))     # -> (n, 20, 14, 14) -> (n, 20, 7, 7)
-        x = F.relu(self.pooling(self.conv3(x)))     # -> (n, 30, 7, 7) -> (n, 30, 3, 3)
-        x = x.view(batch_size, -1)
+        in_size = x.size(0)
+        x = F.relu(self.mp(self.conv1(x)))
+        x = self.incep1(x)
+        x = F.relu(self.mp(self.conv2(x)))
+        x = self.incep2(x)
+        x = x.view(in_size, -1)
         x = self.fc1(x)
-        x = self.fc2(x)
+        x = self.fc2(x)                 # ssj add 
         return x
 
 
-model = Net2()
+model = Net()
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")     # 处理设备
 model.to(device)            # 将模型model移到device中
 criterion = torch.nn.CrossEntropyLoss()
